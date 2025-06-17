@@ -20,10 +20,10 @@ app.post('/overlay', async (req, res) => {
     const image = await Jimp.read(url);
 
     // Schrift laden (Schriftart von Jimp)
-    const font = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
+    const font = await Jimp.loadFont(Jimp.FONT_SANS_32_GREY);
 
     // Overlay-Text oben links (du kannst x,y ändern)
-    image.print(font, 10, 10, overlay);
+    image.print(font, 50, 50, overlay);
 
     // Bild als Buffer zurückschicken (png)
     const buffer = await image.getBufferAsync(Jimp.MIME_PNG);
