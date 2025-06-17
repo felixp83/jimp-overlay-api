@@ -4,7 +4,6 @@ const Jimp = require('jimp');
 const app = express();
 app.use(express.json());
 
-// Startseite: GET /
 app.get('/', (req, res) => {
   res.send('Hello, this is the Jimp Overlay API!');
 });
@@ -19,48 +18,76 @@ app.post('/overlay', async (req, res) => {
     // Bild laden
     const image = await Jimp.read(url);
 
-    // Schriftarten laden (größere Schrift, weiß für Schatten und dunkelgrau für Text)
-    const shadowFont = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);  // Schatten: Schwarz, groß
-    const textFont = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);    // Text: Weiß (wir färben ihn später um)
+    const imageWidth = image.bitmap.width;
+    const imageHeight = image.bitmap.height;
 
-    // Position für Text
-    const x = 20;
-    const y = 20;
+    // Maximale Textbreite und -höhe (z.B. 80% Breite, 30% Höhe des Bildes)
+    const maxTextWidth = imageWidth * 0.8;
+    const maxTextHeight = imageHeight * 0.3;
 
-    // Schatten: leicht versetzt (z.B. 2px rechts, 2px unten)
-    image.print(shadowFont, x + 2, y + 2, overlay);
+    // Schriftgrößen, die wir testen (von groß nach klein)
+    const fonts = [
+      Jimp.FONT_SANS_128_BLACK,
+      Jimp.FONT_SANS_64_BLACK,
+      Jimp.FONT_SANS_32_BLACK,
+      Jimp.FONT_SANS_16_BLACK,
+    ];
 
-    // Text drüber drucken
-    image.print(textFont, x, y, overlay);
+    // Dynamische Schriftartwahl - finde größte Schrift, die Text in max Höhe und Breite passt
+    let chosenFont = null;
+    let textHeight = 0;
 
-    // Jetzt das Bild mit dem weißen Text dunkler machen (dunkelgrau) - 
-    // weil Jimp die Schriftart nicht direkt einfärbt, färben wir den Bereich mit dem Text nachträglich um
-    // (Alternativ: hier als Workaround nutzen wir blendMode OVERLAY mit Grau)
+    for (const fontPath of fonts) {
+      const font = await Jimp.loadFont(fontPath);
+      const height = Jimp.measureTextHeight(font, overlay, maxTextWidth);
 
-    // Finde die Breite und Höhe des Textes, damit wir nur den Textbereich färben können
-    const textWidth = Jimp.measureText(textFont, overlay);
-    const textHeight = Jimp.measureTextHeight(textFont, overlay, image.bitmap.width);
-
-    // Erstelle eine dunkle graue Farbe (RGB 50, 50, 50)
-    const darkGray = Jimp.rgbaToInt(50, 50, 50, 255);
-
-    // Übermale die weiße Schrift mit dunkelgrau — so sieht der Text dunkelgrau aus
-    image.scan(x, y, textWidth, textHeight, (px, py, idx) => {
-      // Nur weiße Pixel färben wir um
-      const red = image.bitmap.data[idx + 0];
-      const green = image.bitmap.data[idx + 1];
-      const blue = image.bitmap.data[idx + 2];
-      const alpha = image.bitmap.data[idx + 3];
-
-      // Weißer Text ist (255,255,255) ungefähr
-      if (red > 240 && green > 240 && blue > 240 && alpha > 0) {
-        image.bitmap.data[idx + 0] = 50; // R
-        image.bitmap.data[idx + 1] = 50; // G
-        image.bitmap.data[idx + 2] = 50; // B
+      if (height <= maxTextHeight) {
+        chosenFont = font;
+        textHeight = height;
+        break; // passende Schriftgröße gefunden
       }
+    }
+
+    // Falls keine passende Schrift gefunden (Text zu lang), nehme kleinste Schrift
+    if (!chosenFont) {
+      chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
+      textHeight = Jimp.measureTextHeight(chosenFont, overlay, maxTextWidth);
+    }
+
+    const padding = 20;
+
+    // Positionierung: horizontal zentriert, vertikal unten mit Abstand
+    const rectWidth = maxTextWidth + padding * 2;
+    const rectHeight = textHeight + padding * 2;
+
+    const rectX = (imageWidth - rectWidth) / 2;
+    const rectY = imageHeight - rectHeight - 20; // 20 px Abstand unten
+
+    // Weißer halbtransparenter Hintergrund
+    const rectangleColor = Jimp.rgbaToInt(255, 255, 255, 180);
+
+    // Rechteck zeichnen
+    image.scan(rectX, rectY, rectWidth, rectHeight, (x, y, idx) => {
+      image.bitmap.data[idx + 0] = 255; // R
+      image.bitmap.data[idx + 1] = 255; // G
+      image.bitmap.data[idx + 2] = 255; // B
+      image.bitmap.data[idx + 3] = 180; // Alpha halbtransparent
     });
 
-    // Bild als Buffer zurückschicken (png)
+    // Text zentriert drucken
+    image.print(
+      chosenFont,
+      rectX + padding,
+      rectY + padding,
+      {
+        text: overlay,
+        alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
+        alignmentY: Jimp.VERTICAL_ALIGN_TOP,
+      },
+      maxTextWidth
+    );
+
+    // Bild zurückgeben
     const buffer = await image.getBufferAsync(Jimp.MIME_PNG);
 
     res.set('Content-Type', 'image/png');
