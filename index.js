@@ -11,19 +11,19 @@ app.get('/', (req, res) => {
 
 app.post('/overlay', async (req, res) => {
   try {
-    const { imageUrl, overlayText } = req.body;
-    if (!imageUrl || !overlayText) {
-      return res.status(400).json({ error: 'imageUrl und overlayText sind Pflicht' });
+    const { url, overlay } = req.body;
+    if (!url || !overlay) {
+      return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
 
     // Bild laden
-    const image = await Jimp.read(imageUrl);
+    const image = await Jimp.read(url);
 
     // Schrift laden (Schriftart von Jimp)
     const font = await Jimp.loadFont(Jimp.FONT_SANS_32_WHITE);
 
     // Overlay-Text oben links (du kannst x,y ändern)
-    image.print(font, 10, 10, overlayText);
+    image.print(font, 10, 10, overlay);
 
     // Bild als Buffer zurückschicken (png)
     const buffer = await image.getBufferAsync(Jimp.MIME_PNG);
