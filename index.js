@@ -104,10 +104,10 @@ app.post('/overlay', async (req, res) => {
     await image.writeAsync(savePath);
 
     // URL zum gespeicherten Bild (angepasst an deine Domain / Host)
-    const url = `${req.protocol}://${req.get('host')}/public/${filename}`;
+    const imageUrl = `${req.protocol}://${req.get('host')}/public/${filename}`;
 
     // Antwort mit Bild-URL
-    res.json({ url });
+    res.json({ imageUrl });
 
   } catch (error) {
     console.error(error);
