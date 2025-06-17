@@ -1,8 +1,13 @@
 const express = require('express');
 const Jimp = require('jimp');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(express.json());
+
+// Statischer Server für den public-Ordner (für gespeicherte Bilder)
+app.use('/public', express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
   res.send('Hello, this is the Jimp Overlay API!');
@@ -21,11 +26,9 @@ app.post('/overlay', async (req, res) => {
     const imageWidth = image.bitmap.width;
     const imageHeight = image.bitmap.height;
 
-    // Maximale Textbreite und -höhe (z.B. 80% Breite, 30% Höhe des Bildes)
     const maxTextWidth = imageWidth * 0.8;
     const maxTextHeight = imageHeight * 0.3;
 
-    // Schriftgrößen, die wir testen (von groß nach klein)
     const fonts = [
       Jimp.FONT_SANS_128_BLACK,
       Jimp.FONT_SANS_64_BLACK,
@@ -33,7 +36,6 @@ app.post('/overlay', async (req, res) => {
       Jimp.FONT_SANS_16_BLACK,
     ];
 
-    // Dynamische Schriftartwahl - finde größte Schrift, die Text in max Höhe und Breite passt
     let chosenFont = null;
     let textHeight = 0;
 
@@ -44,11 +46,10 @@ app.post('/overlay', async (req, res) => {
       if (height <= maxTextHeight) {
         chosenFont = font;
         textHeight = height;
-        break; // passende Schriftgröße gefunden
+        break;
       }
     }
 
-    // Falls keine passende Schrift gefunden (Text zu lang), nehme kleinste Schrift
     if (!chosenFont) {
       chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
       textHeight = Jimp.measureTextHeight(chosenFont, overlay, maxTextWidth);
@@ -56,17 +57,13 @@ app.post('/overlay', async (req, res) => {
 
     const padding = 20;
 
-    // Positionierung: horizontal zentriert, vertikal unten mit Abstand
     const rectWidth = maxTextWidth + padding * 2;
     const rectHeight = textHeight + padding * 2;
 
     const rectX = (imageWidth - rectWidth) / 2;
-    const rectY = imageHeight - rectHeight - 20; // 20 px Abstand unten
+    const rectY = imageHeight - rectHeight - 20;
 
     // Weißer halbtransparenter Hintergrund
-    const rectangleColor = Jimp.rgbaToInt(255, 255, 255, 180);
-
-    // Rechteck zeichnen
     image.scan(rectX, rectY, rectWidth, rectHeight, (x, y, idx) => {
       image.bitmap.data[idx + 0] = 255; // R
       image.bitmap.data[idx + 1] = 255; // G
@@ -87,11 +84,19 @@ app.post('/overlay', async (req, res) => {
       maxTextWidth
     );
 
-    // Bild zurückgeben
-    const buffer = await image.getBufferAsync(Jimp.MIME_PNG);
+    // Bild speichern in 'public' Ordner
+    // Dateiname z.B. overlay-[timestamp].png
+    const timestamp = Date.now();
+    const filename = `overlay-${timestamp}.png`;
+    const savePath = path.join(__dirname, 'public', filename);
 
-    res.set('Content-Type', 'image/png');
-    res.send(buffer);
+    await image.writeAsync(savePath);
+
+    // URL zum gespeicherten Bild (angepasst an deine Domain / Host)
+    const imageUrl = `${req.protocol}://${req.get('host')}/public/${filename}`;
+
+    // Antwort mit Bild-URL
+    res.json({ imageUrl });
 
   } catch (error) {
     console.error(error);
