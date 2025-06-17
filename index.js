@@ -1,7 +1,6 @@
 const express = require('express');
 const Jimp = require('jimp');
 const path = require('path');
-const fs = require('fs');
 
 const app = express();
 app.use(express.json());
@@ -15,7 +14,7 @@ app.get('/', (req, res) => {
 
 app.post('/overlay', async (req, res) => {
   try {
-    const { url, overlay } = req.body;
+    const { url, overlay, row_id } = req.body;
     if (!url || !overlay) {
       return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
@@ -106,8 +105,8 @@ app.post('/overlay', async (req, res) => {
     // URL zum gespeicherten Bild (angepasst an deine Domain / Host)
     const imageUrl = `${req.protocol}://${req.get('host')}/public/${filename}`;
 
-    // Antwort mit Bild-URL
-    res.json({ imageUrl });
+    // Antwort mit Bild-URL und row_id
+    res.json({ imageUrl, row_id });
 
   } catch (error) {
     console.error(error);
