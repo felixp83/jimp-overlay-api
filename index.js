@@ -9,6 +9,10 @@ app.post('/overlay', async (req, res) => {
     const { imageUrl, overlayText } = req.body;
     if (!imageUrl || !overlayText) {
       return res.status(400).json({ error: 'imageUrl und overlayText sind Pflicht' });
+      app.get('/', (req, res) => {
+  res.send('Hello, this is the Jimp Overlay API!');
+});
+
     }
 
     // Bild laden
