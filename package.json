@@ -1,0 +1,13 @@
+{
+  "name": "jimp-overlay-api",
+  "version": "1.0.0",
+  "description": "Einfacher Server zum Overlay-Text auf Bild mit Jimp",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "jimp": "^0.22.8"
+  }
+}
