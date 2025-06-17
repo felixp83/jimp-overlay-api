@@ -84,10 +84,21 @@ app.post('/overlay', async (req, res) => {
       maxTextWidth
     );
 
-    // Bild speichern in 'public' Ordner
-    // Dateiname z.B. overlay-[timestamp].png
-    const timestamp = Date.now();
-    const filename = `overlay-${timestamp}.png`;
+    // Ursprünglichen Dateinamen aus URL extrahieren
+    const urlParts = url.split('/');
+    const originalFilename = urlParts[urlParts.length - 1];
+    const dotIndex = originalFilename.lastIndexOf('.');
+    const name = dotIndex !== -1 ? originalFilename.substring(0, dotIndex) : originalFilename;
+    const ext = '.png'; // Wir speichern immer als PNG
+
+    // Millisekunden seit Mitternacht berechnen
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setHours(0, 0, 0, 0);
+    const msSinceMidnight = now - midnight;
+
+    // Neuen Dateinamen erstellen
+    const filename = `${name}-${msSinceMidnight}${ext}`;
     const savePath = path.join(__dirname, 'public', filename);
 
     await image.writeAsync(savePath);
