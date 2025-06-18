@@ -6,13 +6,16 @@ const Jimp = require('jimp');
 const app = express();
 const port = 3000;
 
-app.use(express.json());
-
-// Sicherstellen, dass der 'public' Ordner existiert
+// Stelle sicher, dass der 'public' Ordner existiert
 const publicDir = path.join(__dirname, 'public');
 if (!fs.existsSync(publicDir)) {
   fs.mkdirSync(publicDir, { recursive: true });
 }
+
+// Bereitstellung des 'public' Ordners als statisches Verzeichnis
+app.use('/public', express.static(publicDir));
+
+app.use(express.json());
 
 app.post('/overlay', async (req, res) => {
   try {
