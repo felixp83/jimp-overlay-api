@@ -1,11 +1,11 @@
 const express = require('express');
 const Jimp = require('jimp');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 app.use(express.json());
 
-// Statischer Server für den public-Ordner (für gespeicherte Bilder)
 app.use('/public', express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
@@ -19,7 +19,6 @@ app.post('/overlay', async (req, res) => {
       return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
 
-    // Bild laden
     const image = await Jimp.read(url);
 
     const imageWidth = image.bitmap.width;
@@ -40,8 +39,7 @@ app.post('/overlay', async (req, res) => {
 
     for (const fontPath of fonts) {
       const font = await Jimp.loadFont(fontPath);
-      const height = Jimp.measureTextHeight(font, overlay, maxTextWidth);
-
+      const height = Jimp.measureTextHeight(font, overlay, maxTextWidth * 1.15);
       if (height <= maxTextHeight) {
         chosenFont = font;
         textHeight = height;
@@ -51,26 +49,20 @@ app.post('/overlay', async (req, res) => {
 
     if (!chosenFont) {
       chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
-      textHeight = Jimp.measureTextHeight(chosenFont, overlay, maxTextWidth);
+      textHeight = Jimp.measureTextHeight(chosenFont, overlay, maxTextWidth * 1.15);
     }
 
     const padding = 20;
-
-    const rectWidth = maxTextWidth + padding * 2;
+    const rectWidth = maxTextWidth * 1.15 + padding * 2;
     const rectHeight = textHeight + padding * 2;
-
     const rectX = (imageWidth - rectWidth) / 2;
     const rectY = imageHeight - rectHeight - 20;
 
-    // Weißer halbtransparenter Hintergrund
-    image.scan(rectX, rectY, rectWidth, rectHeight, (x, y, idx) => {
-      image.bitmap.data[idx + 0] = 255; // R
-      image.bitmap.data[idx + 1] = 255; // G
-      image.bitmap.data[idx + 2] = 255; // B
-      image.bitmap.data[idx + 3] = 180; // Alpha halbtransparent
-    });
+    // Zeichne rosa halbtransparenten Hintergrund (RGB: 255,192,203)
+    const background = new Jimp(rectWidth, rectHeight, Jimp.rgbaToInt(255, 192, 203, 180));
+    image.composite(background, rectX, rectY);
 
-    // Text zentriert drucken
+    // Text zentriert
     image.print(
       chosenFont,
       rectX + padding,
@@ -80,32 +72,28 @@ app.post('/overlay', async (req, res) => {
         alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
         alignmentY: Jimp.VERTICAL_ALIGN_TOP,
       },
-      maxTextWidth
+      maxTextWidth * 1.15
     );
 
-    // Ursprünglichen Dateinamen aus URL extrahieren
+    // Ursprünglichen Dateinamen extrahieren
     const urlParts = url.split('/');
     const originalFilename = urlParts[urlParts.length - 1];
     const dotIndex = originalFilename.lastIndexOf('.');
     const name = dotIndex !== -1 ? originalFilename.substring(0, dotIndex) : originalFilename;
-    const ext = '.png'; // Wir speichern immer als PNG
+    const ext = '.png';
 
-    // Millisekunden seit Mitternacht berechnen
     const now = new Date();
     const midnight = new Date(now);
     midnight.setHours(0, 0, 0, 0);
     const msSinceMidnight = now - midnight;
 
-    // Neuen Dateinamen erstellen
     const filename = `${name}-${msSinceMidnight}${ext}`;
     const savePath = path.join(__dirname, 'public', filename);
 
     await image.writeAsync(savePath);
 
-    // URL zum gespeicherten Bild (angepasst an deine Domain / Host)
     const imageUrl = `${req.protocol}://${req.get('host')}/public/${filename}`;
 
-    // Antwort mit Bild-URL und row_id
     res.json({ imageUrl, row_id });
 
   } catch (error) {
