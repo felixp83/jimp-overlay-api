@@ -6,7 +6,12 @@ const fs = require('fs');
 const app = express();
 app.use(express.json());
 
-app.use('/public', express.static(path.join(__dirname, 'public')));
+// Absoluter Pfad zum public-Ordner relativ zum Arbeitsverzeichnis
+const publicDir = path.resolve('./public');
+if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir);
+
+// Statischer Server für gespeicherte Bilder
+app.use('/public', express.static(publicDir));
 
 app.get('/', (req, res) => {
   res.send('Hello, this is the Jimp Overlay API!');
@@ -14,7 +19,7 @@ app.get('/', (req, res) => {
 
 app.post('/overlay', async (req, res) => {
   try {
-    const { url, overlay, row_id } = req.body;
+    const { url, overlay } = req.body;
     if (!url || !overlay) {
       return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
@@ -27,6 +32,7 @@ app.post('/overlay', async (req, res) => {
     const maxTextWidth = imageWidth * 0.8;
     const maxTextHeight = imageHeight * 0.3;
 
+    // Vergrößerte Fonts
     const fonts = [
       Jimp.FONT_SANS_128_BLACK,
       Jimp.FONT_SANS_64_BLACK,
@@ -39,7 +45,7 @@ app.post('/overlay', async (req, res) => {
 
     for (const fontPath of fonts) {
       const font = await Jimp.loadFont(fontPath);
-      const height = Jimp.measureTextHeight(font, overlay, maxTextWidth * 1.15);
+      const height = Jimp.measureTextHeight(font, overlay, maxTextWidth);
       if (height <= maxTextHeight) {
         chosenFont = font;
         textHeight = height;
@@ -49,20 +55,21 @@ app.post('/overlay', async (req, res) => {
 
     if (!chosenFont) {
       chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
-      textHeight = Jimp.measureTextHeight(chosenFont, overlay, maxTextWidth * 1.15);
+      textHeight = Jimp.measureTextHeight(chosenFont, overlay, maxTextWidth);
     }
 
     const padding = 20;
-    const rectWidth = maxTextWidth * 1.15 + padding * 2;
+    const rectWidth = maxTextWidth + padding * 2;
     const rectHeight = textHeight + padding * 2;
     const rectX = (imageWidth - rectWidth) / 2;
     const rectY = imageHeight - rectHeight - 20;
 
-    // Zeichne rosa halbtransparenten Hintergrund (RGB: 255,192,203)
-    const background = new Jimp(rectWidth, rectHeight, Jimp.rgbaToInt(255, 192, 203, 180));
+    // 📌 Rosa Hintergrund mit abgerundeten Ecken (simuliert durch Alpha-Gradient)
+    const background = await new Jimp(rectWidth, rectHeight, 0xFFC0CBB4); // Rosa + Alpha
+    background.roundCorners(6); // Abrundung (6 px)
     image.composite(background, rectX, rectY);
 
-    // Text zentriert
+    // Text auf rosa Fläche
     image.print(
       chosenFont,
       rectX + padding,
@@ -72,7 +79,7 @@ app.post('/overlay', async (req, res) => {
         alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
         alignmentY: Jimp.VERTICAL_ALIGN_TOP,
       },
-      maxTextWidth * 1.15
+      maxTextWidth
     );
 
     // Ursprünglichen Dateinamen extrahieren
@@ -82,27 +89,28 @@ app.post('/overlay', async (req, res) => {
     const name = dotIndex !== -1 ? originalFilename.substring(0, dotIndex) : originalFilename;
     const ext = '.png';
 
+    // Zeitstempel für Dateinamen
     const now = new Date();
     const midnight = new Date(now);
     midnight.setHours(0, 0, 0, 0);
     const msSinceMidnight = now - midnight;
 
     const filename = `${name}-${msSinceMidnight}${ext}`;
-    const savePath = path.join(__dirname, 'public', filename);
+    const savePath = path.join(publicDir, filename);
 
+    console.log('📁 Bild speichern unter:', savePath);
     await image.writeAsync(savePath);
 
     const imageUrl = `${req.protocol}://${req.get('host')}/public/${filename}`;
-
-    res.json({ imageUrl, row_id });
+    res.json({ imageUrl });
 
   } catch (error) {
-    console.error(error);
+    console.error('❌ Fehler beim Verarbeiten:', error);
     res.status(500).json({ error: 'Fehler beim Verarbeiten des Bildes' });
   }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Server läuft auf Port ${PORT}`);
+  console.log(`🚀 Server läuft auf Port ${PORT}`);
 });
