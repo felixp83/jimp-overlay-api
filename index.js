@@ -1,21 +1,18 @@
 const express = require('express');
-const Jimp = require('jimp');
-const path = require('path');
 const fs = require('fs');
+const path = require('path');
+const Jimp = require('jimp');
 
 const app = express();
+const port = 3000;
+
 app.use(express.json());
 
-// Absoluter Pfad zum public-Ordner relativ zum Arbeitsverzeichnis
-const publicDir = path.resolve('./public');
-if (!fs.existsSync(publicDir)) fs.mkdirSync(publicDir);
-
-// Statischer Server für gespeicherte Bilder
-app.use('/public', express.static(publicDir));
-
-app.get('/', (req, res) => {
-  res.send('Hello, this is the Jimp Overlay API!');
-});
+// Sicherstellen, dass der 'public' Ordner existiert
+const publicDir = path.join(__dirname, 'public');
+if (!fs.existsSync(publicDir)) {
+  fs.mkdirSync(publicDir, { recursive: true });
+}
 
 app.post('/overlay', async (req, res) => {
   try {
@@ -24,15 +21,21 @@ app.post('/overlay', async (req, res) => {
       return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
 
-    const image = await Jimp.read(url);
+    // Bild laden
+    let image;
+    try {
+      image = await Jimp.read(url);
+    } catch (err) {
+      return res.status(400).json({ error: 'Bild konnte nicht geladen werden', details: err.message });
+    }
 
     const imageWidth = image.bitmap.width;
     const imageHeight = image.bitmap.height;
 
+    // Textbereich berechnen
     const maxTextWidth = imageWidth * 0.8;
     const maxTextHeight = imageHeight * 0.3;
 
-    // Vergrößerte Fonts
     const fonts = [
       Jimp.FONT_SANS_128_BLACK,
       Jimp.FONT_SANS_64_BLACK,
@@ -59,21 +62,30 @@ app.post('/overlay', async (req, res) => {
     }
 
     const padding = 20;
+
     const rectWidth = maxTextWidth + padding * 2;
     const rectHeight = textHeight + padding * 2;
+
     const rectX = (imageWidth - rectWidth) / 2;
     const rectY = imageHeight - rectHeight - 20;
 
-    // 📌 Rosa Hintergrund mit abgerundeten Ecken (simuliert durch Alpha-Gradient)
-    const background = await new Jimp(rectWidth, rectHeight, 0xFFC0CBB4); // Rosa + Alpha
-    background.roundCorners(6); // Abrundung (6 px)
-    image.composite(background, rectX, rectY);
+    const rectXInt = Math.round(rectX);
+    const rectYInt = Math.round(rectY);
+    const rectWidthInt = Math.round(rectWidth);
+    const rectHeightInt = Math.round(rectHeight);
 
-    // Text auf rosa Fläche
+    // Weißer halbtransparenter Hintergrund
+    image.scan(rectXInt, rectYInt, rectWidthInt, rectHeightInt, (x, y, idx) => {
+      image.bitmap.data[idx + 0] = 255; // R
+      image.bitmap.data[idx + 1] = 255; // G
+      image.bitmap.data[idx + 2] = 255; // B
+      image.bitmap.data[idx + 3] = 180; // Alpha halbtransparent
+    });
+
     image.print(
       chosenFont,
-      rectX + padding,
-      rectY + padding,
+      rectXInt + padding,
+      rectYInt + padding,
       {
         text: overlay,
         alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
@@ -82,14 +94,13 @@ app.post('/overlay', async (req, res) => {
       maxTextWidth
     );
 
-    // Ursprünglichen Dateinamen extrahieren
+    // Dateinamen erstellen
     const urlParts = url.split('/');
     const originalFilename = urlParts[urlParts.length - 1];
     const dotIndex = originalFilename.lastIndexOf('.');
     const name = dotIndex !== -1 ? originalFilename.substring(0, dotIndex) : originalFilename;
     const ext = '.png';
 
-    // Zeitstempel für Dateinamen
     const now = new Date();
     const midnight = new Date(now);
     midnight.setHours(0, 0, 0, 0);
@@ -98,19 +109,19 @@ app.post('/overlay', async (req, res) => {
     const filename = `${name}-${msSinceMidnight}${ext}`;
     const savePath = path.join(publicDir, filename);
 
-    console.log('📁 Bild speichern unter:', savePath);
     await image.writeAsync(savePath);
 
     const imageUrl = `${req.protocol}://${req.get('host')}/public/${filename}`;
+
     res.json({ imageUrl });
 
   } catch (error) {
     console.error('❌ Fehler beim Verarbeiten:', error);
-    res.status(500).json({ error: 'Fehler beim Verarbeiten des Bildes' });
+    if (error.stack) console.error(error.stack);
+    res.status(500).json({ error: 'Fehler beim Verarbeiten des Bildes', details: error.message });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server läuft auf Port ${PORT}`);
+app.listen(port, () => {
+  console.log(`Server läuft auf http://localhost:${port}`);
 });
