@@ -16,10 +16,13 @@ app.use(express.json());
 
 app.post('/overlay', async (req, res) => {
   try {
-    const { url, overlay } = req.body;
+    let { url, overlay } = req.body;
     if (!url || !overlay) {
       return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
+
+    // Overlay in Großbuchstaben umwandeln
+    overlay = overlay.toUpperCase();
 
     let image;
     try {
@@ -31,9 +34,10 @@ app.post('/overlay', async (req, res) => {
     const imageWidth = image.bitmap.width;
     const imageHeight = image.bitmap.height;
 
-    const maxTextWidth = imageWidth * 0.8;
+    const maxTextWidth = imageWidth * 0.88; // ca. 10% größer als vorher (0.8 -> 0.88)
     const maxTextHeight = imageHeight * 0.3;
 
+    // Größere Fonts priorisieren
     const fonts = [
       Jimp.FONT_SANS_128_BLACK,
       Jimp.FONT_SANS_64_BLACK,
@@ -54,7 +58,7 @@ app.post('/overlay', async (req, res) => {
     }
 
     if (!chosenFont) {
-      chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_32_BLACK);
+      chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_128_BLACK);
       textHeight = Jimp.measureTextHeight(chosenFont, overlay, maxTextWidth);
     }
 
@@ -72,36 +76,33 @@ app.post('/overlay', async (req, res) => {
 
     const cornerRadius = 25;
 
-    // 🌑 Schatten erzeugen
-    const shadow = new Jimp(rectWidthInt, rectHeightInt, 0x00000000);
-    shadow.scan(0, 0, rectWidthInt, rectHeightInt, (x, y, idx) => {
-      const dx = Math.min(x, rectWidthInt - x - 1);
-      const dy = Math.min(y, rectHeightInt - y - 1);
-      if (dx >= cornerRadius || dy >= cornerRadius || dx * dx + dy * dy <= cornerRadius * cornerRadius) {
-        shadow.bitmap.data[idx + 0] = 0;
-        shadow.bitmap.data[idx + 1] = 0;
-        shadow.bitmap.data[idx + 2] = 0;
-        shadow.bitmap.data[idx + 3] = 100;
-      }
-    });
-    image.composite(shadow, rectXInt + 4, rectYInt + 4);
+    // Hintergrund mit abgerundeten Ecken (weißer halbtransparenter Kasten)
 
-    // 🟦 Weißer halbtransparenter Hintergrund mit abgerundeten Ecken
+    // Neue Methode: Wir erzeugen eine Maske für den runden Hintergrund
     const overlayBox = new Jimp(rectWidthInt, rectHeightInt, 0x00000000);
+
+    // Fülle Rechteck mit weißer halbtransparenter Farbe
     overlayBox.scan(0, 0, rectWidthInt, rectHeightInt, (x, y, idx) => {
-      const dx = Math.min(x, rectWidthInt - x - 1);
-      const dy = Math.min(y, rectHeightInt - y - 1);
-      if (dx >= cornerRadius || dy >= cornerRadius || dx * dx + dy * dy <= cornerRadius * cornerRadius) {
+      const dx = Math.min(x, rectWidthInt - 1 - x);
+      const dy = Math.min(y, rectHeightInt - 1 - y);
+      const distSquared = dx * dx + dy * dy;
+
+      if (dx >= cornerRadius || dy >= cornerRadius || distSquared <= cornerRadius * cornerRadius) {
         overlayBox.bitmap.data[idx + 0] = 255;
         overlayBox.bitmap.data[idx + 1] = 255;
         overlayBox.bitmap.data[idx + 2] = 255;
-        overlayBox.bitmap.data[idx + 3] = 200;
+        overlayBox.bitmap.data[idx + 3] = 200; // Alpha halbtransparent
+      } else {
+        // außerhalb der Rundung transparent lassen (keine Pfeile)
+        overlayBox.bitmap.data[idx + 3] = 0;
       }
     });
+
     image.composite(overlayBox, rectXInt, rectYInt);
 
-    // 📝 Text in Grau (#333) zeichnen
-    const fontColor = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK); // bereits geladen
+    // Text in dunkelgrau (#333333) zeichnen
+    // Da Jimp nur Schwarz/Weiß Fonts hat, müssen wir die Farbe nachträglich anpassen
+
     const textImage = new Jimp(rectWidthInt, rectHeightInt, 0x00000000);
 
     textImage.print(
@@ -116,11 +117,12 @@ app.post('/overlay', async (req, res) => {
       maxTextWidth
     );
 
-    // Graufärbung anwenden
+    // Farbkorrektur: Schwarz (0,0,0) zu Dunkelgrau (#333333)
     textImage.scan(0, 0, textImage.bitmap.width, textImage.bitmap.height, (x, y, idx) => {
       const r = textImage.bitmap.data[idx + 0];
       const g = textImage.bitmap.data[idx + 1];
       const b = textImage.bitmap.data[idx + 2];
+
       if (r === 0 && g === 0 && b === 0) {
         textImage.bitmap.data[idx + 0] = 51;
         textImage.bitmap.data[idx + 1] = 51;
