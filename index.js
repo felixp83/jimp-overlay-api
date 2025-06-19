@@ -21,7 +21,6 @@ app.post('/overlay', async (req, res) => {
       return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
 
-    // Overlay in Großbuchstaben umwandeln
     overlay = overlay.toUpperCase();
 
     let image;
@@ -34,10 +33,9 @@ app.post('/overlay', async (req, res) => {
     const imageWidth = image.bitmap.width;
     const imageHeight = image.bitmap.height;
 
-    const maxTextWidth = imageWidth * 0.88; // ca. 10% größer als vorher (0.8 -> 0.88)
+    const maxTextWidth = imageWidth * 0.88;
     const maxTextHeight = imageHeight * 0.3;
 
-    // Größere Fonts priorisieren
     const fonts = [
       Jimp.FONT_SANS_128_BLACK,
       Jimp.FONT_SANS_64_BLACK,
@@ -76,48 +74,61 @@ app.post('/overlay', async (req, res) => {
 
     const cornerRadius = 25;
 
-    // Hintergrund mit abgerundeten Ecken (weißer halbtransparenter Kasten)
-
-    // Neue Methode: Wir erzeugen eine Maske für den runden Hintergrund
+    // Abgerundetes Rechteck mit weichen Kanten (Anti-Aliasing simuliert)
     const overlayBox = new Jimp(rectWidthInt, rectHeightInt, 0x00000000);
 
-    // Fülle Rechteck mit weißer halbtransparenter Farbe
-    overlayBox.scan(0, 0, rectWidthInt, rectHeightInt, (x, y, idx) => {
+    // Helles Blau der Webseite: #a7c7e7 (RGB: 167, 199, 231), Alpha 180 (ca. 70% transparent)
+    const bgColor = { r: 167, g: 199, b: 231, a: 180 };
+
+    // Funktion für weiche abgerundete Ecke
+    function alphaForPixel(x, y) {
       const dx = Math.min(x, rectWidthInt - 1 - x);
       const dy = Math.min(y, rectHeightInt - 1 - y);
-      const distSquared = dx * dx + dy * dy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < cornerRadius - 1) return bgColor.a; // Voll sichtbar
+      if (dist > cornerRadius + 1) return 0;          // Voll transparent
+      // weicher Übergang (Antialiasing)
+      return bgColor.a * (1 - (dist - (cornerRadius - 1)) / 2);
+    }
 
-      if (dx >= cornerRadius || dy >= cornerRadius || distSquared <= cornerRadius * cornerRadius) {
-        overlayBox.bitmap.data[idx + 0] = 255;
-        overlayBox.bitmap.data[idx + 1] = 255;
-        overlayBox.bitmap.data[idx + 2] = 255;
-        overlayBox.bitmap.data[idx + 3] = 200; // Alpha halbtransparent
+    overlayBox.scan(0, 0, rectWidthInt, rectHeightInt, (x, y, idx) => {
+      const alpha = alphaForPixel(x, y);
+      if (alpha > 0) {
+        overlayBox.bitmap.data[idx + 0] = bgColor.r;
+        overlayBox.bitmap.data[idx + 1] = bgColor.g;
+        overlayBox.bitmap.data[idx + 2] = bgColor.b;
+        overlayBox.bitmap.data[idx + 3] = Math.round(alpha);
       } else {
-        // außerhalb der Rundung transparent lassen (keine Pfeile)
         overlayBox.bitmap.data[idx + 3] = 0;
       }
     });
 
     image.composite(overlayBox, rectXInt, rectYInt);
 
-    // Text in dunkelgrau (#333333) zeichnen
-    // Da Jimp nur Schwarz/Weiß Fonts hat, müssen wir die Farbe nachträglich anpassen
-
+    // Text in dunkelgrau (#333333)
+    // Fake-Bold durch zweimal Drucken mit 1px Versatz
     const textImage = new Jimp(rectWidthInt, rectHeightInt, 0x00000000);
 
-    textImage.print(
-      chosenFont,
-      padding,
-      padding,
-      {
-        text: overlay,
-        alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
-        alignmentY: Jimp.VERTICAL_ALIGN_TOP,
-      },
-      maxTextWidth
-    );
+    const drawText = (xOffset, yOffset) => {
+      textImage.print(
+        chosenFont,
+        padding + xOffset,
+        padding + yOffset,
+        {
+          text: overlay,
+          alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
+          alignmentY: Jimp.VERTICAL_ALIGN_TOP,
+        },
+        maxTextWidth
+      );
+    };
 
-    // Farbkorrektur: Schwarz (0,0,0) zu Dunkelgrau (#333333)
+    drawText(0, 0);
+    drawText(1, 0);
+    drawText(0, 1);
+    drawText(1, 1);
+
+    // Schwarz -> dunkelgrau (#333333) ersetzen
     textImage.scan(0, 0, textImage.bitmap.width, textImage.bitmap.height, (x, y, idx) => {
       const r = textImage.bitmap.data[idx + 0];
       const g = textImage.bitmap.data[idx + 1];
