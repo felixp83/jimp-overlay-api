@@ -21,7 +21,24 @@ app.post('/overlay', async (req, res) => {
       return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
 
-    const image = await Jimp.read(url);
+    // 📥 Bild laden
+    let image = await Jimp.read(url);
+
+    // 📐 Pinterest-Format (2:3)
+    const targetRatio = 2 / 3;
+    const { width, height } = image.bitmap;
+    const currentRatio = width / height;
+
+    if (currentRatio > targetRatio) {
+      const newWidth = Math.floor(height * targetRatio);
+      const x = Math.floor((width - newWidth) / 2);
+      image = image.crop(x, 0, newWidth, height);
+    } else if (currentRatio < targetRatio) {
+      const newHeight = Math.floor(width / targetRatio);
+      const y = Math.floor((height - newHeight) / 2);
+      image = image.crop(0, y, width, newHeight);
+    }
+
     const imageWidth = image.bitmap.width;
     const imageHeight = image.bitmap.height;
 
@@ -31,7 +48,7 @@ app.post('/overlay', async (req, res) => {
     const fontCandidates = [
       { size: 64, path: Jimp.FONT_SANS_64_BLACK },
       { size: 32, path: Jimp.FONT_SANS_32_BLACK },
-      { size: 16, path: Jimp.FONT_SANS_16_BLACK },
+      { size: 16, path: Jimp.FONT_SANS_16_BLACK }
     ];
 
     const overlayText = overlay.toUpperCase();
@@ -49,6 +66,7 @@ app.post('/overlay', async (req, res) => {
         break;
       }
     }
+
     if (!chosenFont) {
       chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
     }
@@ -66,12 +84,12 @@ app.post('/overlay', async (req, res) => {
     const rectWidthInt = Math.round(rectWidth);
     const rectHeightInt = Math.round(rectHeight);
 
-    // 🔹 HALBTRANSPARENTER HINTERGRUND: #add8e6 mit alpha 150
+    // 🎨 Halbtransparenter Hintergrund (#add8e6 mit Alpha 150)
     image.scan(rectXInt, rectYInt, rectWidthInt, rectHeightInt, (x, y, idx) => {
-      image.bitmap.data[idx + 0] = 173; // R
-      image.bitmap.data[idx + 1] = 216; // G
-      image.bitmap.data[idx + 2] = 230; // B
-      image.bitmap.data[idx + 3] = 150; // A
+      image.bitmap.data[idx + 0] = 173;
+      image.bitmap.data[idx + 1] = 216;
+      image.bitmap.data[idx + 2] = 230;
+      image.bitmap.data[idx + 3] = 150;
     });
 
     const textImage = new Jimp(rectWidthInt, rectHeightInt, 0x00000000);
@@ -88,6 +106,7 @@ app.post('/overlay', async (req, res) => {
       maxTextWidth
     );
 
+    // 🖋️ Textfarbe: #333333
     textImage.scan(0, 0, textImage.bitmap.width, textImage.bitmap.height, (x, y, idx) => {
       const r = textImage.bitmap.data[idx + 0];
       const g = textImage.bitmap.data[idx + 1];
@@ -101,6 +120,7 @@ app.post('/overlay', async (req, res) => {
 
     image.composite(textImage, rectXInt, rectYInt);
 
+    // 📤 Bild speichern
     const urlParts = url.split('/');
     const originalFilename = urlParts[urlParts.length - 1];
     const dotIndex = originalFilename.lastIndexOf('.');
