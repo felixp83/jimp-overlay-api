@@ -21,13 +21,7 @@ app.post('/overlay', async (req, res) => {
       return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
 
-    let image;
-    try {
-      image = await Jimp.read(url);
-    } catch (err) {
-      return res.status(400).json({ error: 'Bild konnte nicht geladen werden', details: err.message });
-    }
-
+    const image = await Jimp.read(url);
     const imageWidth = image.bitmap.width;
     const imageHeight = image.bitmap.height;
 
@@ -37,7 +31,7 @@ app.post('/overlay', async (req, res) => {
     const fontCandidates = [
       { size: 64, path: Jimp.FONT_SANS_64_BLACK },
       { size: 32, path: Jimp.FONT_SANS_32_BLACK },
-      { size: 16, path: Jimp.FONT_SANS_16_BLACK }
+      { size: 16, path: Jimp.FONT_SANS_16_BLACK },
     ];
 
     const overlayText = overlay.toUpperCase();
@@ -55,13 +49,11 @@ app.post('/overlay', async (req, res) => {
         break;
       }
     }
-
     if (!chosenFont) {
       chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
     }
 
     const textHeight = Jimp.measureTextHeight(chosenFont, overlayText, maxTextWidth);
-
     const padding = 20;
     const rectWidth = maxTextWidth + padding * 2;
     const rectHeight = textHeight + padding * 2;
@@ -74,31 +66,14 @@ app.post('/overlay', async (req, res) => {
     const rectWidthInt = Math.round(rectWidth);
     const rectHeightInt = Math.round(rectHeight);
 
-    // Hintergrund hellblau (#add8e6) mit Alpha 150 und abgerundeten Ecken
-    const overlayBg = new Jimp(rectWidthInt, rectHeightInt, 0x00000000); // transparent
-    const cornerRadius = 20;
-    const bgColor = Jimp.rgbaToInt(173, 216, 230, 150); // rgba(173,216,230,150)
+    // 🔹 HALBTRANSPARENTER HINTERGRUND: #add8e6 mit alpha 150
+    image.scan(rectXInt, rectYInt, rectWidthInt, rectHeightInt, (x, y, idx) => {
+      image.bitmap.data[idx + 0] = 173; // R
+      image.bitmap.data[idx + 1] = 216; // G
+      image.bitmap.data[idx + 2] = 230; // B
+      image.bitmap.data[idx + 3] = 150; // A
+    });
 
-    for (let y = 0; y < rectHeightInt; y++) {
-      for (let x = 0; x < rectWidthInt; x++) {
-        const inTopLeft = x < cornerRadius && y < cornerRadius &&
-          (Math.pow(x - cornerRadius, 2) + Math.pow(y - cornerRadius, 2)) > cornerRadius * cornerRadius;
-        const inTopRight = x >= rectWidthInt - cornerRadius && y < cornerRadius &&
-          (Math.pow(x - (rectWidthInt - cornerRadius - 1), 2) + Math.pow(y - cornerRadius, 2)) > cornerRadius * cornerRadius;
-        const inBottomLeft = x < cornerRadius && y >= rectHeightInt - cornerRadius &&
-          (Math.pow(x - cornerRadius, 2) + Math.pow(y - (rectHeightInt - cornerRadius - 1), 2)) > cornerRadius * cornerRadius;
-        const inBottomRight = x >= rectWidthInt - cornerRadius && y >= rectHeightInt - cornerRadius &&
-          (Math.pow(x - (rectWidthInt - cornerRadius - 1), 2) + Math.pow(y - (rectHeightInt - cornerRadius - 1), 2)) > cornerRadius * cornerRadius;
-
-        if (!(inTopLeft || inTopRight || inBottomLeft || inBottomRight)) {
-          overlayBg.setPixelColor(bgColor, x, y);
-        }
-      }
-    }
-
-    image.composite(overlayBg, rectXInt, rectYInt);
-
-    // Text in dunkelgrau (#333333)
     const textImage = new Jimp(rectWidthInt, rectHeightInt, 0x00000000);
 
     textImage.print(
