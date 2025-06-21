@@ -21,78 +21,78 @@ app.post('/overlay', async (req, res) => {
       return res.status(400).json({ error: 'url und overlay sind Pflicht' });
     }
 
+    const overlayText = overlay.toUpperCase();
+
     // 📥 Bild laden
-    let image = await Jimp.read(url);
+    let original = await Jimp.read(url);
 
-    // 📐 Pinterest-Format (2:3)
-    const targetRatio = 2 / 3;
-    const { width, height } = image.bitmap;
-    const currentRatio = width / height;
+    // 📐 Zielverhältnis (Pinterest): 2:3
+    const targetWidth = 1000;
+    const targetHeight = 1500;
+    const targetRatio = targetWidth / targetHeight;
 
-    if (currentRatio > targetRatio) {
-      const newWidth = Math.floor(height * targetRatio);
-      const x = Math.floor((width - newWidth) / 2);
-      image = image.crop(x, 0, newWidth, height);
-    } else if (currentRatio < targetRatio) {
-      const newHeight = Math.floor(width / targetRatio);
-      const y = Math.floor((height - newHeight) / 2);
-      image = image.crop(0, y, width, newHeight);
-    }
+    // 📏 Skaliere Bild so, dass möglichst wenig abgeschnitten wird
+    const scaleW = targetWidth / original.bitmap.width;
+    const scaleH = targetHeight / original.bitmap.height;
+    const scale = Math.max(scaleW, scaleH); // so wenig wie möglich beschneiden
 
-    const imageWidth = image.bitmap.width;
-    const imageHeight = image.bitmap.height;
+    const scaledWidth = Math.ceil(original.bitmap.width * scale);
+    const scaledHeight = Math.ceil(original.bitmap.height * scale);
 
-    const maxTextWidth = imageWidth * 0.8;
-    const maxTextHeight = imageHeight * 0.3;
+    let image = original.clone().resize(scaledWidth, scaledHeight);
 
+    // 📐 Temporäres Cropping-Rechteck vorbereiten
+    let cropX = Math.floor((scaledWidth - targetWidth) / 2);
+    let cropY = Math.floor((scaledHeight - targetHeight) / 2);
+    let cropW = targetWidth;
+    let cropH = targetHeight;
+
+    // ⬇️ Platz für Text reservieren (Höhe berechnen)
     const fontCandidates = [
       { size: 64, path: Jimp.FONT_SANS_64_BLACK },
       { size: 32, path: Jimp.FONT_SANS_32_BLACK },
       { size: 16, path: Jimp.FONT_SANS_16_BLACK }
     ];
 
-    const overlayText = overlay.toUpperCase();
-
-    async function textFits(fontPath, text, maxWidth, maxHeight) {
-      const font = await Jimp.loadFont(fontPath);
-      const height = Jimp.measureTextHeight(font, text, maxWidth);
-      return height <= maxHeight;
-    }
-
     let chosenFont = null;
-    for (const candidate of fontCandidates) {
-      if (await textFits(candidate.path, overlayText, maxTextWidth, maxTextHeight)) {
-        chosenFont = await Jimp.loadFont(candidate.path);
+    let textHeight = 0;
+    let padding = 20;
+    const maxTextWidth = targetWidth * 0.8;
+
+    for (const fontDef of fontCandidates) {
+      const font = await Jimp.loadFont(fontDef.path);
+      const h = Jimp.measureTextHeight(font, overlayText, maxTextWidth);
+      if (h + padding * 2 < targetHeight * 0.3) {
+        chosenFont = font;
+        textHeight = h;
         break;
       }
     }
 
     if (!chosenFont) {
       chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
+      textHeight = Jimp.measureTextHeight(chosenFont, overlayText, maxTextWidth);
     }
 
-    const textHeight = Jimp.measureTextHeight(chosenFont, overlayText, maxTextWidth);
-    const padding = 20;
+    const totalTextBlockHeight = textHeight + padding * 2;
+
+    // 📐 Passe Crop-Y an, damit Text sichtbar bleibt
+    if (cropY + cropH > scaledHeight - totalTextBlockHeight - 20) {
+      cropY = Math.max(0, scaledHeight - cropH - totalTextBlockHeight - 20);
+    }
+
+    image = image.crop(cropX, cropY, cropW, cropH);
+
+    const imageWidth = image.bitmap.width;
+    const imageHeight = image.bitmap.height;
+
     const rectWidth = maxTextWidth + padding * 2;
     const rectHeight = textHeight + padding * 2;
 
-    const rectX = (imageWidth - rectWidth) / 2;
-    const rectY = imageHeight - rectHeight - 20;
+    const rectX = Math.round((imageWidth - rectWidth) / 2);
+    const rectY = Math.round(imageHeight - rectHeight - 20);
 
-    const rectXInt = Math.round(rectX);
-    const rectYInt = Math.round(rectY);
-    const rectWidthInt = Math.round(rectWidth);
-    const rectHeightInt = Math.round(rectHeight);
-
-    // 🎨 Halbtransparenter Hintergrund (#add8e6 mit Alpha 150)
-    image.scan(rectXInt, rectYInt, rectWidthInt, rectHeightInt, (x, y, idx) => {
-      image.bitmap.data[idx + 0] = 173;
-      image.bitmap.data[idx + 1] = 216;
-      image.bitmap.data[idx + 2] = 230;
-      image.bitmap.data[idx + 3] = 150;
-    });
-
-    const textImage = new Jimp(rectWidthInt, rectHeightInt, 0x00000000);
+    const textImage = new Jimp(Math.round(rectWidth), Math.round(rectHeight), 0x00000000); // transparent
 
     textImage.print(
       chosenFont,
@@ -106,7 +106,7 @@ app.post('/overlay', async (req, res) => {
       maxTextWidth
     );
 
-    // 🖋️ Textfarbe: #333333
+    // Textfarbe: #333333 (schwarz → dunkelgrau)
     textImage.scan(0, 0, textImage.bitmap.width, textImage.bitmap.height, (x, y, idx) => {
       const r = textImage.bitmap.data[idx + 0];
       const g = textImage.bitmap.data[idx + 1];
@@ -118,7 +118,15 @@ app.post('/overlay', async (req, res) => {
       }
     });
 
-    image.composite(textImage, rectXInt, rectYInt);
+    // Halbtransparenter Hintergrund unter Text (#add8e6 + alpha 150)
+    image.scan(rectX, rectY, textImage.bitmap.width, textImage.bitmap.height, (x, y, idx) => {
+      image.bitmap.data[idx + 0] = 173;
+      image.bitmap.data[idx + 1] = 216;
+      image.bitmap.data[idx + 2] = 230;
+      image.bitmap.data[idx + 3] = 150;
+    });
+
+    image.composite(textImage, rectX, rectY);
 
     // 📤 Bild speichern
     const urlParts = url.split('/');
