@@ -34,9 +34,6 @@ app.post('/overlay', async (req, res) => {
     const maxTextWidth = imageWidth * 0.8;
     const maxTextHeight = imageHeight * 0.3;
 
-    // Schriftgrößen (Pixel) und Pfade passend zu Jimp-Fonts (nur verfügbar: 16, 32, 64, 128)
-    // Wir starten mit 90 (ca. 30% kleiner als 128) => nehmen 64 als nächstliegende Größe,
-    // und passen ggf. runter bis 16, wenn Text nicht passt.
     const fontCandidates = [
       { size: 64, path: Jimp.FONT_SANS_64_BLACK },
       { size: 32, path: Jimp.FONT_SANS_32_BLACK },
@@ -45,14 +42,12 @@ app.post('/overlay', async (req, res) => {
 
     const overlayText = overlay.toUpperCase();
 
-    // Funktion, um zu checken, ob Text mit Font passt
     async function textFits(fontPath, text, maxWidth, maxHeight) {
       const font = await Jimp.loadFont(fontPath);
       const height = Jimp.measureTextHeight(font, text, maxWidth);
       return height <= maxHeight;
     }
 
-    // Wähle größten Font, der passt (beginne bei 64)
     let chosenFont = null;
     for (const candidate of fontCandidates) {
       if (await textFits(candidate.path, overlayText, maxTextWidth, maxTextHeight)) {
@@ -60,12 +55,11 @@ app.post('/overlay', async (req, res) => {
         break;
       }
     }
-    // Falls keiner passt, nehme den kleinsten Font
+
     if (!chosenFont) {
       chosenFont = await Jimp.loadFont(Jimp.FONT_SANS_16_BLACK);
     }
 
-    // Texthöhe mit gewähltem Font
     const textHeight = Jimp.measureTextHeight(chosenFont, overlayText, maxTextWidth);
 
     const padding = 20;
@@ -80,20 +74,32 @@ app.post('/overlay', async (req, res) => {
     const rectWidthInt = Math.round(rectWidth);
     const rectHeightInt = Math.round(rectHeight);
 
-    // Hintergrund hellblau (#add8e6) mit Alpha 150 (leicht transparent), ohne abgerundete Ecken
-    // Setze Rechteck mit blauer, halbtransparenter Farbe
-    image.scan(rectXInt, rectYInt, rectWidthInt, rectHeightInt, (x, y, idx) => {
-      image.bitmap.data[idx + 0] = 173; // R: 0xad
-      image.bitmap.data[idx + 1] = 216; // G: 0xd8
-      image.bitmap.data[idx + 2] = 230; // B: 0xe6
-      image.bitmap.data[idx + 3] = 150; // Alpha (leicht transparent)
-    });
+    // Hintergrund hellblau (#add8e6) mit Alpha 150 und abgerundeten Ecken
+    const overlayBg = new Jimp(rectWidthInt, rectHeightInt, 0x00000000); // transparent
+    const cornerRadius = 20;
+    const bgColor = Jimp.rgbaToInt(173, 216, 230, 150); // rgba(173,216,230,150)
 
-    // Text in dunkelgrau (#333333) zeichnen
-    // Jimp Standardfonts sind schwarz, wir müssen den Text "manuell" färben:
-    // Dazu zeichnen wir den Text auf ein separates Bild und färben alle schwarzen Pixel um
+    for (let y = 0; y < rectHeightInt; y++) {
+      for (let x = 0; x < rectWidthInt; x++) {
+        const inTopLeft = x < cornerRadius && y < cornerRadius &&
+          (Math.pow(x - cornerRadius, 2) + Math.pow(y - cornerRadius, 2)) > cornerRadius * cornerRadius;
+        const inTopRight = x >= rectWidthInt - cornerRadius && y < cornerRadius &&
+          (Math.pow(x - (rectWidthInt - cornerRadius - 1), 2) + Math.pow(y - cornerRadius, 2)) > cornerRadius * cornerRadius;
+        const inBottomLeft = x < cornerRadius && y >= rectHeightInt - cornerRadius &&
+          (Math.pow(x - cornerRadius, 2) + Math.pow(y - (rectHeightInt - cornerRadius - 1), 2)) > cornerRadius * cornerRadius;
+        const inBottomRight = x >= rectWidthInt - cornerRadius && y >= rectHeightInt - cornerRadius &&
+          (Math.pow(x - (rectWidthInt - cornerRadius - 1), 2) + Math.pow(y - (rectHeightInt - cornerRadius - 1), 2)) > cornerRadius * cornerRadius;
 
-    const textImage = new Jimp(rectWidthInt, rectHeightInt, 0x00000000); // transparentes Bild
+        if (!(inTopLeft || inTopRight || inBottomLeft || inBottomRight)) {
+          overlayBg.setPixelColor(bgColor, x, y);
+        }
+      }
+    }
+
+    image.composite(overlayBg, rectXInt, rectYInt);
+
+    // Text in dunkelgrau (#333333)
+    const textImage = new Jimp(rectWidthInt, rectHeightInt, 0x00000000);
 
     textImage.print(
       chosenFont,
@@ -107,7 +113,6 @@ app.post('/overlay', async (req, res) => {
       maxTextWidth
     );
 
-    // Farbe schwarz (0,0,0) in dunkelgrau (51,51,51) ersetzen
     textImage.scan(0, 0, textImage.bitmap.width, textImage.bitmap.height, (x, y, idx) => {
       const r = textImage.bitmap.data[idx + 0];
       const g = textImage.bitmap.data[idx + 1];
@@ -121,7 +126,6 @@ app.post('/overlay', async (req, res) => {
 
     image.composite(textImage, rectXInt, rectYInt);
 
-    // Bild speichern
     const urlParts = url.split('/');
     const originalFilename = urlParts[urlParts.length - 1];
     const dotIndex = originalFilename.lastIndexOf('.');
